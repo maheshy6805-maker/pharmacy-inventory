@@ -12,12 +12,12 @@ const transporter = nodemailer.createTransport({
 exports.sendOtpEmail = async (to, otp) => {
   const htmlTemplate = `
     <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f9fafb; border-radius: 8px; max-width: 500px; margin: auto; border: 1px solid #e5e7eb;">
-      <h2 style="color: #10b981; text-align: center;">Pharmacy App</h2>
+      <h2 style="color: #7e22ce; text-align: center;">Pharmalogy</h2>
       <p style="font-size: 16px; color: #374151;">
         Dear User,
       </p>
       <p style="font-size: 16px; color: #374151;">
-        Your One Time Password (OTP) is:
+        Your One Time Password for registration is:
       </p>
       <div style="font-size: 24px; font-weight: bold; color: #111827; text-align: center; margin: 20px 0;">
         ${otp}
@@ -27,7 +27,7 @@ exports.sendOtpEmail = async (to, otp) => {
       </p>
       <hr style="margin: 20px 0; border: none; border-top: 1px solid #e5e7eb;">
       <p style="font-size: 12px; color: #9ca3af; text-align: center;">
-        &copy; ${new Date().getFullYear()} Pharmacy App. All rights reserved.
+        &copy; ${new Date().getFullYear()} Pharmalogy. All rights reserved.
       </p>
     </div>
   `;
