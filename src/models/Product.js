@@ -1,3 +1,4 @@
+// models/Product.js
 const mongoose = require("mongoose");
 
 const productSchema = new mongoose.Schema(
@@ -45,6 +46,15 @@ const productSchema = new mongoose.Schema(
     cutSelling: { type: Boolean, default: false },
     subUnits: { type: Number, default: 0 }, // E.g. 10 tablets in a strip
     pricePerUnit: { type: Number, default: 0 },
+
+    // 🔽 New image field
+    image: {
+      url: { type: String, required: false },
+      key: { type: String },
+      name: { type: String },
+      size: { type: Number },
+      type: { type: String },
+    },
 
     enterprise: {
       type: mongoose.Schema.Types.ObjectId,

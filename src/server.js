@@ -1,3 +1,4 @@
+// server.js (top of file)
 const app = require("./app");
 const mongoose = require("mongoose");
 require("dotenv").config();
@@ -9,7 +10,11 @@ const MONGO_URI = process.env.MONGO_URI;
 // ✅ register cors before routes
 app.use(
   cors({
-    origin: ["http://localhost:5173"], // React dev server
+    origin: [
+      "http://localhost:5173",
+      "http://127.0.0.1:5173",
+      "https://app.pharmalogy.co.in", // vercel domain
+    ],
     credentials: true,
   })
 );

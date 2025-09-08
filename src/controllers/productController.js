@@ -21,6 +21,7 @@ exports.addProduct = async (req, res) => {
     cutSelling,
     subUnits,
     pricePerUnit,
+    image, // 🔽 accept image from body
   } = req.body;
 
   const enterpriseId = req.user.enterprise;
@@ -64,6 +65,9 @@ exports.addProduct = async (req, res) => {
       subUnits: cutSelling ? subUnits : 0,
       pricePerUnit: cutSelling ? pricePerUnit : 0,
       enterprise: enterpriseId,
+
+      // 🔽 Save image object if provided
+      image: image || null,
     });
 
     const savedProduct = await newProduct.save();
@@ -77,6 +81,7 @@ exports.addProduct = async (req, res) => {
       .json({ message: "Error adding product", error: err.message });
   }
 };
+
 exports.getAllProducts = async (req, res) => {
   const { category, subcategory, brand, salt, name, prescriptionRequired } =
     req.query;
@@ -100,6 +105,8 @@ exports.getAllProducts = async (req, res) => {
 
   try {
     const products = await Product.find(filters);
+
+    // 🔽 They already include `image` field
     res.status(200).json({ products });
   } catch (err) {
     res
