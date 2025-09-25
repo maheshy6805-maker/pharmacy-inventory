@@ -120,8 +120,6 @@ exports.getAllMasterProducts = async (req, res) => {
     Is_discontinued,
     manufacturer_name,
     type,
-    short_composition1,
-    short_composition2,
     name,
     page = 1,
     limit = 10,
@@ -132,29 +130,57 @@ exports.getAllMasterProducts = async (req, res) => {
   if (Is_discontinued) filters.Is_discontinued = Is_discontinued;
   if (manufacturer_name) filters.manufacturer_name = manufacturer_name;
   if (type) filters.type = type;
-  if (short_composition1) filters.short_composition1 = short_composition1;
-  if (short_composition2) filters.short_composition2 = short_composition2;
 
+  let searchRegex;
   if (name) {
-    filters.name = { $regex: name, $options: "i" }; // case-insensitive
+    searchRegex = new RegExp(name, "i"); // case-insensitive regex
+    // Match any of the 3 fields
+    filters.$or = [
+      { name: searchRegex },
+      { short_composition1: searchRegex },
+      { short_composition2: searchRegex },
+    ];
   }
 
-  const pageNumber = parseInt(page);
-  const pageSize = parseInt(limit);
-  const skip = (pageNumber - 1) * pageSize;
-
   try {
-    const [masterProducts, total] = await Promise.all([
-      ProductMaster.find(filters).skip(skip).limit(pageSize),
-      ProductMaster.countDocuments(filters),
-    ]);
+    // Get all matching products (no pagination yet)
+    let matchedProducts = await ProductMaster.find(filters);
+
+    // Manual prioritization
+    if (name) {
+      matchedProducts = matchedProducts.sort((a, b) => {
+        const aNameMatch = a.name.match(searchRegex) ? 1 : 0;
+        const bNameMatch = b.name.match(searchRegex) ? 1 : 0;
+
+        const aShort1Match = a.short_composition1?.match(searchRegex) ? 1 : 0;
+        const bShort1Match = b.short_composition1?.match(searchRegex) ? 1 : 0;
+
+        const aShort2Match = a.short_composition2?.match(searchRegex) ? 1 : 0;
+        const bShort2Match = b.short_composition2?.match(searchRegex) ? 1 : 0;
+
+        const aScore = aNameMatch * 3 + aShort1Match * 2 + aShort2Match;
+        const bScore = bNameMatch * 3 + bShort1Match * 2 + bShort2Match;
+
+        return bScore - aScore; // descending
+      });
+    }
+
+    const total = matchedProducts.length;
+
+    // Manual pagination
+    const pageNumber = parseInt(page);
+    const pageSize = parseInt(limit);
+    const paginatedData = matchedProducts.slice(
+      (pageNumber - 1) * pageSize,
+      pageNumber * pageSize
+    );
 
     res.status(200).json({
       page: pageNumber,
       limit: pageSize,
       total,
       totalPages: Math.ceil(total / pageSize),
-      data: masterProducts,
+      data: paginatedData,
     });
   } catch (err) {
     res.status(500).json({

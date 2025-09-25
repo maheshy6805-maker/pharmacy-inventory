@@ -11,17 +11,17 @@ const billSchema = new mongoose.Schema(
     products: [
       {
         product: { type: mongoose.Schema.Types.ObjectId, ref: "Product" },
-        quantity: Number,
-        subUnitsPurchased: Number, // Only used if cutSelling is true
+        quantitySold: Number,
         unitPrice: Number,
         totalPrice: Number,
       },
     ],
+    customer: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Customer",
+      required: true,
+    },
     totalAmount: Number,
-    discountAmount: Number,
-    finalAmount: Number,
-    isBillOnDebt: { type: Boolean, default: false },
-    customerName: { type: String },
     prescribingDoctor: { type: String },
   },
   { timestamps: true }
