@@ -3,7 +3,10 @@ const Enterprise = require("../models/Enterprise");
 const Otp = require("../models/Otp");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const { sendOtpEmail } = require("../utils/sendEmail");
+const {
+  sendOtpEmail,
+  sendAccountSetupSuccessEmail,
+} = require("../utils/sendEmail");
 require("dotenv").config();
 
 const JWT_SECRET =
@@ -123,6 +126,8 @@ exports.verifyOtpAndSetPassword = async (req, res) => {
       await user.save();
 
       await Otp.deleteMany({ email, purpose });
+
+      await sendAccountSetupSuccessEmail(email, user);
 
       return res
         .status(200)

@@ -47,6 +47,13 @@ const productSchema = new mongoose.Schema(
     subUnits: { type: Number, default: 0 }, // E.g. 10 tablets in a strip
     pricePerUnit: { type: Number, default: 0 },
 
+    // in models/Product.js (inside schema fields)
+    hsnCode: { type: String },
+    scheme: { type: String },
+    cgstPercent: { type: Number, default: 0 },
+    sgstPercent: { type: Number, default: 0 },
+    pack: { type: String },
+
     // 🔽 New image field
     image: {
       url: { type: String, required: false },

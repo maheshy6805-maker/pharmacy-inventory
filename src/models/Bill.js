@@ -1,4 +1,3 @@
-// models/Bill.js
 const mongoose = require("mongoose");
 
 const billSchema = new mongoose.Schema(
@@ -23,6 +22,13 @@ const billSchema = new mongoose.Schema(
     },
     totalAmount: Number,
     prescribingDoctor: { type: String },
+
+    // 💳 Payment mode field
+    paymentMode: {
+      type: String,
+      enum: ["Cash", "UPI", "Card", "Debt"],
+      default: "Cash",
+    },
   },
   { timestamps: true }
 );

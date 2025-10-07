@@ -7,7 +7,7 @@ const auth = require("../middlewares/authMiddleware");
 const router = express.Router();
 const upload = multer(); // memory storage
 const { createProduct } = require("../services/productService");
-const { createPurchase } = require("../services/purchaseService");
+const { createPurchase } = require("../services/purchaseBillService");
 
 /* --------- 1.  READ HEADERS ONLY (native parser) --------- */
 router.post("/map", auth, upload.single("file"), async (req, res) => {
