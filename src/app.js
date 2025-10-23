@@ -40,6 +40,7 @@
 const express = require("express");
 const app = express();
 const cookieParser = require("cookie-parser");
+const path = require("path"); // 👈 add this
 
 const medicineRoutes = require("./routes/medicineRoutes");
 const authRoutes = require("./routes/authRoutes");
@@ -58,16 +59,19 @@ const { createRouteHandler } = require("uploadthing/express");
 app.use(express.json());
 app.use(cookieParser());
 
+// ✅ Serve static PDF files from "uploads" directory
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
 app.use("/api/auth", authRoutes);
 
 app.use("/api/csv-import", authMiddleware, uploadRoutes);
 
-// other protected routes
+// ✅ Protected routes
 app.use("/api/medicines", authMiddleware, medicineRoutes);
 app.use("/api/users", authMiddleware, userRoutes);
 app.use("/api/products", authMiddleware, productRoutes);
 app.use("/api/bills", authMiddleware, billingRoutes);
-app.use("/api/purchase-bills", authMiddleware, purchaseBillRoutes); // ✅ updated
-app.use("/api/customers", authMiddleware, customerRoutes); // ✅ updated
+app.use("/api/purchase-bills", authMiddleware, purchaseBillRoutes);
+app.use("/api/customers", authMiddleware, customerRoutes);
 
 module.exports = app;

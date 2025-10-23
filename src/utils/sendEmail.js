@@ -1,3 +1,4 @@
+const fs = require("fs");
 require("dotenv").config();
 const brevo = require("@getbrevo/brevo");
 
@@ -65,6 +66,55 @@ exports.sendAccountSetupSuccessEmail = async (to, userData) => {
   } catch (err) {
     console.error(
       "❌ Failed to trigger welcome email:",
+      err.response?.body || err.message
+    );
+  }
+};
+
+/**
+ * Send Bill Email with Cloud PDF Attachment
+ * @param {string} to - Recipient email
+ * @param {object} bill - Bill object
+ * @param {string} pdfUrl - Cloudflare R2 public file URL (https://...)
+ * @param {object} enterprise - Enterprise details
+ */
+exports.sendBillEmail = async (to, bill, pdfUrl, enterprise) => {
+  try {
+    const htmlTemplate = `
+      <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f9fafb; border-radius: 8px; max-width: 600px; margin: auto;">
+        <h2 style="color: #7e22ce; text-align: center;">Pharmalogy Invoice</h2>
+        <p>Dear ${bill.customer?.name || "Customer"},</p>
+        <p>Thank you for your purchase from <strong>${
+          enterprise?.name || "Pharmalogy"
+        }</strong>.</p>
+        <p>Your total bill amount is <strong>₹${bill.totalAmount}</strong>.</p>
+        <p>Payment Mode: <strong>${bill.paymentMode}</strong></p>
+        <p>You can view or download your detailed invoice by clicking the button below:</p>
+        <div style="text-align:center; margin: 20px 0;">
+          <a href="${pdfUrl}" target="_blank" style="background-color:#7e22ce; color:#fff; padding:10px 20px; border-radius:5px; text-decoration:none;">View Invoice</a>
+        </div>
+        <p>Regards,<br/><strong>${enterprise?.name || "Pharmalogy"}</strong></p>
+      </div>
+    `;
+
+    const sendSmtpEmail = {
+      sender: {
+        name: enterprise?.name || "Pharmalogy",
+        email: "no-reply@pharmalogy.co.in",
+      },
+      to: [{ email: to }],
+      subject: `Invoice #${bill._id} - ${enterprise?.name || "Pharmalogy"}`,
+      htmlContent: htmlTemplate,
+    };
+
+    const response = await client.sendTransacEmail(sendSmtpEmail);
+    console.log(
+      `✅ Bill email sent to ${to}:`,
+      response.body?.messageId || response
+    );
+  } catch (err) {
+    console.error(
+      "❌ Failed to send bill email:",
       err.response?.body || err.message
     );
   }

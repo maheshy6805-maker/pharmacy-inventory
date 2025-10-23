@@ -1,5 +1,6 @@
 const Product = require("../models/Product");
 const ProductMaster = require("../models/ProductMaster");
+const paginate = require("../utils/pagination");
 
 exports.addProduct = async (req, res) => {
   const {
@@ -84,8 +85,16 @@ exports.addProduct = async (req, res) => {
 };
 
 exports.getAllProducts = async (req, res) => {
-  const { category, subcategory, brand, salt, name, prescriptionRequired } =
-    req.query;
+  const {
+    category,
+    subcategory,
+    brand,
+    salt,
+    name,
+    prescriptionRequired,
+    page = 1,
+    limit = 10,
+  } = req.query;
 
   const filters = {};
 
@@ -105,16 +114,21 @@ exports.getAllProducts = async (req, res) => {
   filters.enterprise = req.user.enterprise;
 
   try {
+    // Fetch all matching products based on filters
     const products = await Product.find(filters);
 
-    // 🔽 They already include `image` field
-    res.status(200).json({ products });
+    // Use the pagination utility to paginate the results
+    const result = paginate(products, {}, page, limit);
+
+    res.status(200).json(result);
   } catch (err) {
-    res
-      .status(500)
-      .json({ message: "Failed to fetch products", error: err.message });
+    res.status(500).json({
+      message: "Failed to fetch products",
+      error: err.message,
+    });
   }
 };
+
 exports.getAllMasterProducts = async (req, res) => {
   const {
     Is_discontinued,
@@ -143,45 +157,28 @@ exports.getAllMasterProducts = async (req, res) => {
   }
 
   try {
-    // Get all matching products (no pagination yet)
+    // Get all matching products (apply filters here, not in pagination)
     let matchedProducts = await ProductMaster.find(filters);
 
-    // Manual prioritization
+    // Manual prioritization based on name match (sorting the results)
     if (name) {
       matchedProducts = matchedProducts.sort((a, b) => {
-        const aNameMatch = a.name.match(searchRegex) ? 1 : 0;
-        const bNameMatch = b.name.match(searchRegex) ? 1 : 0;
-
-        const aShort1Match = a.short_composition1?.match(searchRegex) ? 1 : 0;
-        const bShort1Match = b.short_composition1?.match(searchRegex) ? 1 : 0;
-
-        const aShort2Match = a.short_composition2?.match(searchRegex) ? 1 : 0;
-        const bShort2Match = b.short_composition2?.match(searchRegex) ? 1 : 0;
-
-        const aScore = aNameMatch * 3 + aShort1Match * 2 + aShort2Match;
-        const bScore = bNameMatch * 3 + bShort1Match * 2 + bShort2Match;
-
-        return bScore - aScore; // descending
+        const aScore =
+          (a.name.match(searchRegex) ? 3 : 0) +
+          (a.short_composition1?.match(searchRegex) ? 2 : 0) +
+          (a.short_composition2?.match(searchRegex) ? 1 : 0);
+        const bScore =
+          (b.name.match(searchRegex) ? 3 : 0) +
+          (b.short_composition1?.match(searchRegex) ? 2 : 0) +
+          (b.short_composition2?.match(searchRegex) ? 1 : 0);
+        return bScore - aScore; // descending order
       });
     }
 
-    const total = matchedProducts.length;
+    // Use the pagination utility (pagination is applied AFTER filtering and sorting)
+    const result = paginate(matchedProducts, {}, page, limit); // Empty filters here, because filtering is done above
 
-    // Manual pagination
-    const pageNumber = parseInt(page);
-    const pageSize = parseInt(limit);
-    const paginatedData = matchedProducts.slice(
-      (pageNumber - 1) * pageSize,
-      pageNumber * pageSize
-    );
-
-    res.status(200).json({
-      page: pageNumber,
-      limit: pageSize,
-      total,
-      totalPages: Math.ceil(total / pageSize),
-      data: paginatedData,
-    });
+    res.status(200).json(result);
   } catch (err) {
     res.status(500).json({
       message: "Failed to fetch products",
