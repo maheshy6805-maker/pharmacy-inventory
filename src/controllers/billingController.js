@@ -5,7 +5,7 @@ const Bill = require("../models/Bill");
 const Customer = require("../models/Customer");
 const { generateBillPDF } = require("../utils/pdfGenerator");
 const { sendBillEmail } = require("../utils/sendEmail");
-const { uploadToR2 } = require("../utils/r2Uploader"); // R2 uploader
+const { uploadToR2 } = require("../utils/uploadToR2"); // R2 uploader
 const path = require("path");
 const { sendWhatsappMessage } = require("../utils/sendWhatsappMessage");
 
