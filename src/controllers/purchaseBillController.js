@@ -85,17 +85,58 @@ exports.addProductsToPurchase = async (req, res) => {
 };
 
 // 2. Get all bills
+// 2. Get all purchase bills with search + latest first + date filters
+// 2. Get all purchase bills with search + latest first + date filters
 exports.getAllPurchasedProducts = async (req, res) => {
   try {
     const enterpriseId = req.user.enterprise;
-    const bills = await PurchaseBill.find({
-      enterprise: enterpriseId,
-    }).populate("items.product");
-    res.status(200).json({ bills });
+    const {
+      search, // search keyword
+      startDate, // optional start date
+      endDate, // optional end date
+      page = 1, // pagination page (default 1)
+      limit = 10, // pagination limit (default 10)
+    } = req.query;
+
+    const filters = { enterprise: enterpriseId };
+
+    // 🟢 Search by supplierName or item name (case-insensitive)
+    if (search) {
+      const regex = new RegExp(search, "i");
+      filters.$or = [{ supplierName: regex }, { "items.name": regex }];
+    }
+
+    // 🗓️ Filter by purchase date range
+    if (startDate || endDate) {
+      filters.purchasedDate = {};
+      if (startDate) filters.purchasedDate.$gte = new Date(startDate);
+      if (endDate) filters.purchasedDate.$lte = new Date(endDate);
+    }
+
+    // 🔹 Pagination setup
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // 🔹 Fetch bills (latest first)
+    const bills = await PurchaseBill.find(filters)
+      .populate("items.product")
+      .sort({ purchasedDate: -1, createdAt: -1 }) // latest first
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const totalCount = await PurchaseBill.countDocuments(filters);
+
+    res.status(200).json({
+      message: "Purchase bills fetched successfully",
+      totalCount,
+      currentPage: Number(page),
+      totalPages: Math.ceil(totalCount / limit),
+      bills,
+    });
   } catch (err) {
-    res
-      .status(500)
-      .json({ message: "Failed to fetch purchase bills", error: err.message });
+    res.status(500).json({
+      message: "Failed to fetch purchase bills",
+      error: err.message,
+    });
   }
 };
 

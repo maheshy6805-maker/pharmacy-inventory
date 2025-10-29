@@ -56,6 +56,9 @@ const { uploadRouter } = require("./uploadthing");
 const uploadRoutes = require("./routes/uploadRoutes");
 const { createRouteHandler } = require("uploadthing/express");
 
+//swagger
+const { swaggerUi, swaggerSpec } = require("./swagger");
+
 app.use(express.json());
 app.use(cookieParser());
 
@@ -65,6 +68,10 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 app.use("/api/auth", authRoutes);
 
 app.use("/api/csv-import", authMiddleware, uploadRoutes);
+
+//swagger route
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+console.log("✅ Swagger docs available at: http://localhost:5000/api-docs");
 
 // ✅ Protected routes
 app.use("/api/medicines", authMiddleware, medicineRoutes);

@@ -1,4 +1,57 @@
 // models/Product.js
+
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     Product:
+ *       type: object
+ *       required:
+ *         - name
+ *         - category
+ *         - price
+ *         - costPrice
+ *         - stock
+ *       properties:
+ *         name:
+ *           type: string
+ *           example: Paracetamol 500mg
+ *         brand:
+ *           type: string
+ *           example: Crocin
+ *         manufacturer:
+ *           type: string
+ *           example: GSK Pharma
+ *         category:
+ *           type: string
+ *           enum: [Medicine, Cosmetic, Wellness, Personal Care, Medical Device, Supplement]
+ *         subcategory:
+ *           type: string
+ *           example: Allopathic
+ *         price:
+ *           type: number
+ *           example: 50
+ *         costPrice:
+ *           type: number
+ *           example: 30
+ *         stock:
+ *           type: number
+ *           example: 100
+ *         description:
+ *           type: string
+ *           example: Pain relief tablet
+ *         prescriptionRequired:
+ *           type: boolean
+ *           example: true
+ *         image:
+ *           type: object
+ *           properties:
+ *             url: { type: string, example: "https://cdn.example.com/img1.png" }
+ *         enterprise:
+ *           type: string
+ *           description: Enterprise ID reference
+ */
+
 const mongoose = require("mongoose");
 
 const productSchema = new mongoose.Schema(

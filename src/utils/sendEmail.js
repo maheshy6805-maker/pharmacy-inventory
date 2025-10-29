@@ -81,19 +81,49 @@ exports.sendAccountSetupSuccessEmail = async (to, userData) => {
 exports.sendBillEmail = async (to, bill, pdfUrl, enterprise) => {
   try {
     const htmlTemplate = `
-      <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f9fafb; border-radius: 8px; max-width: 600px; margin: auto;">
-        <h2 style="color: #7e22ce; text-align: center;">Pharmalogy Invoice</h2>
+      <div style="font-family: Arial, sans-serif; background-color: #f9fafb; border-radius: 8px; padding: 25px; max-width: 600px; margin: auto; color: #333;">
+        <h2 style="color: #7e22ce; text-align: center; margin-bottom: 20px;">
+          ${enterprise?.name || "Pharmalogy"} Invoice
+        </h2>
         <p>Dear ${bill.customer?.name || "Customer"},</p>
         <p>Thank you for your purchase from <strong>${
           enterprise?.name || "Pharmalogy"
         }</strong>.</p>
-        <p>Your total bill amount is <strong>₹${bill.totalAmount}</strong>.</p>
-        <p>Payment Mode: <strong>${bill.paymentMode}</strong></p>
-        <p>You can view or download your detailed invoice by clicking the button below:</p>
-        <div style="text-align:center; margin: 20px 0;">
-          <a href="${pdfUrl}" target="_blank" style="background-color:#7e22ce; color:#fff; padding:10px 20px; border-radius:5px; text-decoration:none;">View Invoice</a>
+        <table style="width:100%; border-collapse: collapse; margin-top:15px;">
+          <tr>
+            <td style="padding: 6px 0;">Invoice ID:</td>
+            <td><strong>${bill._id}</strong></td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0;">Total Amount:</td>
+            <td><strong>₹${bill.totalAmount}</strong></td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0;">Payment Mode:</td>
+            <td>${bill.paymentMode}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0;">Date:</td>
+            <td>${new Date(bill.createdAt).toLocaleString()}</td>
+          </tr>
+        </table>
+
+        <div style="text-align:center; margin: 30px 0;">
+          <a href="${pdfUrl}" target="_blank"
+             style="background-color:#7e22ce; color:#fff; padding:12px 24px; border-radius:6px; text-decoration:none; font-weight:600;">
+             View Invoice
+          </a>
         </div>
-        <p>Regards,<br/><strong>${enterprise?.name || "Pharmalogy"}</strong></p>
+
+        <p style="margin-top: 20px;">Regards,<br/>
+        <strong>${enterprise?.name || "Pharmalogy"}</strong></p>
+
+        <hr style="margin-top:25px; border:none; border-top:1px solid #eee;" />
+        <p style="font-size:12px; color:#888; text-align:center;">
+          This email was sent automatically by ${
+            enterprise?.name || "Pharmalogy"
+          }.
+        </p>
       </div>
     `;
 
@@ -103,15 +133,12 @@ exports.sendBillEmail = async (to, bill, pdfUrl, enterprise) => {
         email: "no-reply@pharmalogy.co.in",
       },
       to: [{ email: to }],
-      subject: `Invoice #${bill._id} - ${enterprise?.name || "Pharmalogy"}`,
+      subject: `Invoice from ${enterprise?.name || "Pharmalogy"}`,
       htmlContent: htmlTemplate,
     };
 
     const response = await client.sendTransacEmail(sendSmtpEmail);
-    console.log(
-      `✅ Bill email sent to ${to}:`,
-      response.body?.messageId || response
-    );
+    console.log(`✅ Bill email sent to ${to}`, response.body?.messageId || "");
   } catch (err) {
     console.error(
       "❌ Failed to send bill email:",

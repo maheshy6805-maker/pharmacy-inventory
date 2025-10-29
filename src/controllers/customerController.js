@@ -1,8 +1,9 @@
 // controllers/customerController.js
 const Customer = require("../models/Customer");
+const paginate = require("../utils/pagination");
 
 exports.getAllCustomers = async (req, res) => {
-  const { name, mobile } = req.query;
+  const { name, mobile, page = 1, limit = 10 } = req.query;
   const filters = { enterprise: req.user.enterprise };
 
   if (name) filters.name = { $regex: name, $options: "i" };
@@ -10,7 +11,8 @@ exports.getAllCustomers = async (req, res) => {
 
   try {
     const customers = await Customer.find(filters);
-    res.status(200).json({ customers });
+    const result = paginate(customers, {}, page, limit);
+    res.status(200).json(result);
   } catch (err) {
     res
       .status(500)

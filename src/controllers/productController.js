@@ -3,84 +3,75 @@ const ProductMaster = require("../models/ProductMaster");
 const paginate = require("../utils/pagination");
 
 exports.addProduct = async (req, res) => {
-  const {
-    name,
-    brand,
-    manufacturer,
-    category,
-    subcategory,
-    salt,
-    description,
-    price,
-    costPrice,
-    discountPercentage,
-    gstPercentage,
-    batchNumber,
-    unit,
-    stock,
-    prescriptionRequired,
-    expiryDate,
-    cutSelling,
-    subUnits,
-    pricePerUnit,
-    image, // 🔽 accept image from body
-  } = req.body;
-
-  const enterpriseId = req.user.enterprise;
-
-  if (!name || !category || !price || !costPrice || !stock) {
-    return res.status(400).json({ message: "Missing required fields" });
-  }
-
-  if (req.user.role !== "PHARMACIST" && req.user.role !== "ADMIN") {
-    return res.status(403).json({ message: "Unauthorized to add products" });
-  }
-
-  // Cut selling validation
-  if (cutSelling) {
-    if (!subUnits || !pricePerUnit) {
-      return res.status(400).json({
-        message: "For cut selling, subUnits and pricePerUnit are required",
-      });
-    }
-  }
-
   try {
-    const newProduct = new Product({
-      name,
-      brand,
-      manufacturer,
-      category,
-      subcategory,
-      salt,
-      description,
-      price,
-      costPrice,
-      discountPercentage,
-      gstPercentage,
-      batchNumber,
-      unit,
-      stock,
-      prescriptionRequired,
-      expiryDate,
-      cutSelling: !!cutSelling,
-      subUnits: cutSelling ? subUnits : 0,
-      pricePerUnit: cutSelling ? pricePerUnit : 0,
-      enterprise: enterpriseId,
+    const { products } = req.body; // 🧾 Can be an array or undefined
+    const enterpriseId = req.user.enterprise;
 
-      // 🔽 Save image object if provided
-      image: image || null,
+    if (req.user.role !== "PHARMACIST" && req.user.role !== "ADMIN") {
+      return res.status(403).json({ message: "Unauthorized to add products" });
+    }
+
+    // Determine if it's a single product or multiple
+    const inputProducts = Array.isArray(products) ? products : [req.body];
+
+    // 🧩 Validate each product
+    const invalid = inputProducts.find(
+      (p) => !p.name || !p.category || !p.price || !p.costPrice || !p.stock
+    );
+    if (invalid) {
+      return res
+        .status(400)
+        .json({ message: "Missing required fields in one or more products" });
+    }
+
+    // 🧾 Build product documents
+    const productDocs = inputProducts.map((p) => {
+      if (p.cutSelling) {
+        if (!p.subUnits || !p.pricePerUnit) {
+          throw new Error(
+            `For product "${p.name}", subUnits and pricePerUnit are required when cutSelling is enabled`
+          );
+        }
+      }
+
+      return {
+        name: p.name,
+        brand: p.brand,
+        manufacturer: p.manufacturer,
+        category: p.category,
+        subcategory: p.subcategory,
+        salt: p.salt,
+        description: p.description,
+        price: p.price,
+        costPrice: p.costPrice,
+        discountPercentage: p.discountPercentage,
+        gstPercentage: p.gstPercentage,
+        batchNumber: p.batchNumber,
+        unit: p.unit,
+        stock: p.stock,
+        prescriptionRequired: p.prescriptionRequired,
+        expiryDate: p.expiryDate,
+        cutSelling: !!p.cutSelling,
+        subUnits: p.cutSelling ? p.subUnits : 0,
+        pricePerUnit: p.cutSelling ? p.pricePerUnit : 0,
+        enterprise: enterpriseId,
+        image: p.image || null,
+      };
     });
 
-    const savedProduct = await newProduct.save();
+    // 💾 Bulk insert
+    const savedProducts = await Product.insertMany(productDocs);
 
-    res
-      .status(201)
-      .json({ message: "Product added successfully", product: savedProduct });
+    res.status(201).json({
+      message: `${savedProducts.length} product(s) added successfully`,
+      products: savedProducts,
+    });
   } catch (err) {
-    res
-      .status(500)
-      .json({ message: "Error adding product", error: err.message });
+    console.error("❌ Error adding products:", err);
+    res.status(500).json({
+      message: "Error adding product(s)",
+      error: err.message,
+    });
   }
 };
 
@@ -114,14 +105,17 @@ exports.getAllProducts = async (req, res) => {
   filters.enterprise = req.user.enterprise;
 
   try {
-    // Fetch all matching products based on filters
-    const products = await Product.find(filters);
+    // Fetch and sort products (latest first)
+    const products = await Product.find(filters)
+      .sort({ createdAt: -1 }) // ✅ Latest first
+      .lean();
 
-    // Use the pagination utility to paginate the results
+    // Use your pagination utility
     const result = paginate(products, {}, page, limit);
 
     res.status(200).json(result);
   } catch (err) {
+    console.error("❌ Failed to fetch products:", err);
     res.status(500).json({
       message: "Failed to fetch products",
       error: err.message,

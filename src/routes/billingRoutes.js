@@ -12,4 +12,5 @@ router.patch(
   auth,
   billingController.updatePaymentReceived
 );
+
 module.exports = router;
