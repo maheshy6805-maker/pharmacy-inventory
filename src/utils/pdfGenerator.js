@@ -3,7 +3,7 @@ const path = require("path");
 const PDFDocument = require("pdfkit");
 
 /**
- * Generates a professional, clean, aligned PDF invoice
+ * Generates a professional, clean, aligned PDF invoice (Unicode safe)
  * @param {Object} bill
  * @param {Object} enterprise
  * @returns {Promise<string>} Path to generated PDF file
@@ -16,12 +16,18 @@ exports.generateBillPDF = async (bill, enterprise) => {
 
       const filePath = path.join(dir, `${bill._id}.pdf`);
       const pdf = new PDFDocument({ margin: 50 });
+
+      // Load Unicode font that supports ₹
+      const fontPath = path.join(__dirname, "./fonts/NotoSans-Regular.ttf");
+      if (fs.existsSync(fontPath)) pdf.registerFont("NotoSans", fontPath);
+      else pdf.registerFont("NotoSans", "Helvetica"); // fallback
+
       const stream = fs.createWriteStream(filePath);
       pdf.pipe(stream);
 
       // ---- Header ----
       pdf
-        .font("Helvetica-Bold")
+        .font("NotoSans")
         .fontSize(22)
         .fillColor("#7e22ce")
         .text(enterprise?.name || "Pharmalogy", { align: "center" });
@@ -29,7 +35,6 @@ exports.generateBillPDF = async (bill, enterprise) => {
       if (enterprise?.email)
         pdf
           .moveDown(0.2)
-          .font("Helvetica")
           .fontSize(11)
           .fillColor("#555")
           .text(enterprise.email, { align: "center" });
@@ -39,10 +44,9 @@ exports.generateBillPDF = async (bill, enterprise) => {
       pdf.moveDown(1);
 
       // ---- Invoice Info ----
-      pdf.font("Helvetica-Bold").fontSize(16).fillColor("#000").text("Invoice");
+      pdf.fontSize(16).fillColor("#000").text("Invoice", { align: "left" });
       pdf.moveDown(0.3);
       pdf
-        .font("Helvetica")
         .fontSize(12)
         .fillColor("#333")
         .text(`Invoice ID: ${bill._id}`)
@@ -52,13 +56,8 @@ exports.generateBillPDF = async (bill, enterprise) => {
       pdf.moveDown(1);
 
       // ---- Customer ----
+      pdf.fontSize(14).fillColor("#000").text("Customer details");
       pdf
-        .font("Helvetica-Bold")
-        .fontSize(14)
-        .fillColor("#000")
-        .text("Customer details");
-      pdf
-        .font("Helvetica")
         .fontSize(12)
         .fillColor("#333")
         .text(`Name: ${bill.customer?.name || "-"}`)
@@ -67,11 +66,7 @@ exports.generateBillPDF = async (bill, enterprise) => {
       pdf.moveDown(1.2);
 
       // ---- Table Header ----
-      pdf
-        .font("Helvetica-Bold")
-        .fontSize(14)
-        .fillColor("#000")
-        .text("Products");
+      pdf.fontSize(14).fillColor("#000").text("Products");
       pdf.moveDown(0.4);
 
       const startY = pdf.y;
@@ -101,7 +96,7 @@ exports.generateBillPDF = async (bill, enterprise) => {
 
       // ---- Table Rows ----
       let y = startY + 25;
-      pdf.font("Helvetica").fontSize(10).fillColor("#000");
+      pdf.fontSize(10).fillColor("#000");
 
       bill.products.forEach((item, index) => {
         const { name, gst, discount, price } = item.product;
@@ -146,46 +141,50 @@ exports.generateBillPDF = async (bill, enterprise) => {
 
       // ---- Totals ----
       pdf.moveDown(2);
+      const rightAlignX = 300; // right section alignment
       pdf
-        .font("Helvetica-Bold")
+        .font("NotoSans")
         .fontSize(13)
-        .text(`Total Amount: ₹${bill.totalAmount.toFixed(2)}`, {
-          align: "right",
-        });
+        .fillColor("#000")
+        .text(
+          `Total Amount: ₹${bill.totalAmount.toFixed(2)}`,
+          rightAlignX,
+          pdf.y,
+          {
+            align: "right",
+            width: 250,
+          }
+        );
       pdf
-        .font("Helvetica")
         .fontSize(12)
         .fillColor("#444")
-        .text(`Payment Mode: ${bill.paymentMode}`, { align: "right" });
-
-      // ---- Notes / Warnings ----
-      if (bill.warnings?.length) {
-        pdf.moveDown(1);
-        pdf
-          .font("Helvetica-Bold")
-          .fontSize(12)
-          .fillColor("#b91c1c")
-          .text("⚠ Notes:");
-        pdf.font("Helvetica").fillColor("#333").fontSize(11);
-        bill.warnings.forEach((w) => pdf.text(`- ${w}`));
-      }
+        .text(`Payment Mode: ${bill.paymentMode}`, rightAlignX, pdf.y + 18, {
+          align: "right",
+          width: 250,
+        });
 
       // ---- Footer ----
-      pdf.moveDown(2.5);
+      pdf.moveDown(3);
       pdf
-        .font("Helvetica-Bold")
+        .font("NotoSans")
         .fontSize(12)
         .fillColor("#7e22ce")
-        .text("Thank you for your purchase!", { align: "center" });
-
+        .text("Thank you for your purchase!", 50, pdf.y, {
+          width: 500,
+          align: "center",
+          continued: false,
+        });
       pdf
-        .font("Helvetica")
+        .font("NotoSans")
         .fontSize(9)
         .fillColor("#888")
-        .text(`© Powered by Pharmalogy`, { align: "center" });
+        .text("© Powered by Pharmalogy", 50, pdf.y + 5, {
+          width: 500,
+          align: "center",
+          continued: false,
+        });
 
       pdf.end();
-
       stream.on("finish", () => resolve(filePath));
       stream.on("error", reject);
     } catch (err) {
