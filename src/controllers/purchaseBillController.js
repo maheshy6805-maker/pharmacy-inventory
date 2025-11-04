@@ -38,10 +38,11 @@ exports.addProductsToPurchase = async (req, res) => {
         expiryDate: item.expiryDate,
         costPrice: item.rate,
         price: item.retailPrice,
-        discountPercentage: item.discountPercent || 0,
-        gstPercentage: (item.cgstPercent || 0) + (item.sgstPercent || 0),
-        cgstPercent: item.cgstPercent,
-        sgstPercent: item.sgstPercent,
+        discountPercentage: Number(item.discountPercent || 0),
+        gstPercentage:
+          Number(item.cgstPercent || 0) + Number(item.sgstPercent || 0),
+        cgstPercent: Number(item.cgstPercent || 0),
+        sgstPercent: Number(item.sgstPercent || 0),
         scheme: item.scheme,
         stock: item.qnty,
         pack: item.pack,
@@ -159,28 +160,145 @@ exports.getPurchasedBillById = async (req, res) => {
 };
 
 // 4. Update bill
+// controllers/purchaseBillController.js
 exports.updatePurchasedProduct = async (req, res) => {
   try {
     const enterpriseId = req.user.enterprise;
     const { id } = req.params;
-    const updateData = req.body;
+    const { supplierName, invoiceNumber, purchasedDate, paymentStatus, items } =
+      req.body;
 
-    const updatedBill = await PurchaseBill.findOneAndUpdate(
-      { _id: id, enterprise: enterpriseId },
-      { $set: updateData },
-      { new: true }
-    ).populate("items.product");
+    const purchaseBill = await PurchaseBill.findOne({
+      _id: id,
+      enterprise: enterpriseId,
+    }).populate("items.product");
 
-    if (!updatedBill) {
+    if (!purchaseBill) {
       return res.status(404).json({ message: "Purchase bill not found" });
     }
 
-    res
-      .status(200)
-      .json({ message: "Purchase bill updated", purchaseBill: updatedBill });
+    // 🧾 Update basic bill details
+    if (supplierName) purchaseBill.supplierName = supplierName;
+    if (invoiceNumber) purchaseBill.invoiceNumber = invoiceNumber;
+    if (purchasedDate) purchaseBill.purchasedDate = purchasedDate;
+    if (paymentStatus) purchaseBill.paymentStatus = paymentStatus;
+
+    // 🧮 Reset totals
+    let totalAmount = 0;
+    const updatedItems = [];
+
+    // 🧩 Update each item and its linked Product
+    for (const item of items) {
+      const amount = Number(item.amount || item.qnty * item.rate);
+      totalAmount += amount;
+
+      // If product already exists → update it
+      if (item.product) {
+        const product = await Product.findById(item.product);
+        if (product) {
+          product.name = item.name;
+          product.hsnCode = item.hsnCode;
+          product.manufacturer = item.manufacturerName;
+          product.batchNumber = item.batchNo;
+          product.expiryDate = item.expiryDate;
+          product.costPrice = Number(item.rate);
+          product.price = Number(item.retailPrice);
+          product.discountPercentage = Number(item.discountPercent || 0);
+          product.gstPercentage =
+            Number(item.cgstPercent || 0) + Number(item.sgstPercent || 0);
+          product.cgstPercent = Number(item.cgstPercent || 0);
+          product.sgstPercent = Number(item.sgstPercent || 0);
+          product.scheme = item.scheme;
+          product.stock = Number(item.qnty);
+          product.pack = item.pack;
+          await product.save();
+        }
+      } else {
+        // Otherwise, create a new Product
+        const newProduct = new Product({
+          name: item.name,
+          hsnCode: item.hsnCode,
+          manufacturer: item.manufacturerName,
+          batchNumber: item.batchNo,
+          expiryDate: item.expiryDate,
+          costPrice: Number(item.rate),
+          price: Number(item.retailPrice),
+          discountPercentage: Number(item.discountPercent || 0),
+          gstPercentage:
+            Number(item.cgstPercent || 0) + Number(item.sgstPercent || 0),
+          cgstPercent: Number(item.cgstPercent || 0),
+          sgstPercent: Number(item.sgstPercent || 0),
+          scheme: item.scheme,
+          stock: Number(item.qnty),
+          pack: item.pack,
+          category: "Medicine",
+          subcategory: "NA",
+          enterprise: enterpriseId,
+        });
+        const savedProduct = await newProduct.save();
+        item.product = savedProduct._id;
+      }
+
+      updatedItems.push({
+        ...item,
+        amount,
+        product: item.product,
+      });
+    }
+
+    // ✅ Assign updated items and total
+    purchaseBill.items = updatedItems;
+    purchaseBill.totalAmount = totalAmount;
+
+    const updatedBill = await purchaseBill.save();
+
+    res.status(200).json({
+      message: "Purchase bill and products updated successfully",
+      purchaseBill: updatedBill,
+    });
   } catch (err) {
-    res
-      .status(500)
-      .json({ message: "Failed to update bill", error: err.message });
+    res.status(500).json({
+      message: "Failed to update purchase bill",
+      error: err.message,
+    });
+  }
+};
+
+// 5. Delete purchase bill and associated products
+exports.deletePurchasedBill = async (req, res) => {
+  try {
+    const enterpriseId = req.user.enterprise;
+    const { id } = req.params;
+
+    // 🔹 Find the bill
+    const purchaseBill = await PurchaseBill.findOne({
+      _id: id,
+      enterprise: enterpriseId,
+    });
+
+    if (!purchaseBill) {
+      return res.status(404).json({ message: "Purchase bill not found" });
+    }
+
+    // 🔹 Delete associated products (optional but usually preferred)
+    const productIds = purchaseBill.items
+      .filter((item) => item.product)
+      .map((item) => item.product);
+
+    if (productIds.length > 0) {
+      await Product.deleteMany({ _id: { $in: productIds } });
+    }
+
+    // 🔹 Delete the purchase bill itself
+    await PurchaseBill.deleteOne({ _id: id });
+
+    res.status(200).json({
+      message: "Purchase bill and associated products deleted successfully",
+    });
+  } catch (err) {
+    res.status(500).json({
+      message: "Failed to delete purchase bill",
+      error: err.message,
+    });
   }
 };

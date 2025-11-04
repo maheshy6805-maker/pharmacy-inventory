@@ -24,6 +24,12 @@ router.put(
   purchaseBillController.updatePurchasedProduct
 );
 
+router.delete(
+  "/:id",
+  authMiddleware,
+  purchaseBillController.deletePurchasedBill
+);
+
 /**
  * @swagger
  * tags:
