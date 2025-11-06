@@ -84,6 +84,7 @@ exports.generateBill = async (req, res) => {
               packing: productData.packing || "",
               batchNumber: productData.batchNumber || "",
               expiryDate: productData.expiryDate || "",
+              costPrice: productData.costPrice, // ⬅️⬅️⬅️
               price: productData.price || 0,
               discount: productData.discountPercentage || 0,
               gst: productData.gstPercentage || 0,
@@ -110,7 +111,6 @@ exports.generateBill = async (req, res) => {
       if (master) {
         foundType = "FROM_MASTER";
 
-        // ✅ Use user-provided price if available, else master’s
         unitPrice =
           parseFloat(item.price || item.unitPrice || master.price || 0) || 0;
         totalPrice = unitPrice * item.quantitySold;
@@ -125,6 +125,7 @@ exports.generateBill = async (req, res) => {
             packing: item.packing || master.packing || "",
             batchNumber: item.batchNumber || master.batchNumber || "",
             expiryDate: item.expiryDate || master.expiryDate || "",
+            costPrice: Number(item.costPrice ?? 0), // ⬅️⬅️⬅️
             price: unitPrice,
             discount: item.discount ?? master.discountPercentage ?? 0,
             gst: item.gst ?? master.gstPercentage ?? 0,
@@ -154,6 +155,7 @@ exports.generateBill = async (req, res) => {
           packing: item.packing || "",
           batchNumber: item.batchNumber || "",
           expiryDate: item.expiryDate || "",
+          costPrice: Number(item.costPrice ?? 0), // ⬅️⬅️⬅️
           price: unitPrice,
           discount: item.discount || 0,
           gst: item.gst || 0,

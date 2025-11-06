@@ -115,6 +115,7 @@ const billedProductSchema = new mongoose.Schema(
       packing: { type: String },
       batchNumber: { type: String },
       expiryDate: { type: String },
+      costPrice: { type: Number, default: 0 },
       price: { type: Number, default: 0 },
       discount: { type: Number, default: 0 },
       gst: { type: Number, default: 0 },
