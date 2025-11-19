@@ -16,8 +16,14 @@ const Enterprise = require("../models/Enterprise");
 // ----------------------------------------------------
 
 exports.generateBill = async (req, res) => {
-  const { products, customer, totalAmount, prescribingDoctor, paymentMode } =
-    req.body;
+  const {
+    products,
+    customer,
+    totalAmount,
+    prescribingDoctor,
+    paymentMode,
+    billingDate,
+  } = req.body;
   const enterpriseId = req.user.enterprise;
 
   if (!products?.length) {
@@ -48,14 +54,18 @@ exports.generateBill = async (req, res) => {
 
     const productDetails = [];
     const warnings = [];
+    const remainingStockArray = [];
 
+    // 🧮 Loop through products in bill
     for (const item of products) {
       let productData = null;
       let foundType = "CUSTOM";
       let unitPrice = 0;
       let totalPrice = 0;
+      let saleUnits = 0;
+      let salePacks = 0;
 
-      // 🟢 CASE 1 — Product from enterprise
+      // 🟢 FROM_STOCK
       if (mongoose.isValidObjectId(item.productId)) {
         productData = await Product.findOne({
           _id: item.productId,
@@ -64,32 +74,99 @@ exports.generateBill = async (req, res) => {
 
         if (productData) {
           foundType = "FROM_STOCK";
-          unitPrice = productData.price;
-          totalPrice = unitPrice * item.quantitySold;
 
-          if (productData.stock < item.quantitySold) {
-            warnings.push(
-              `Negative billing: ${productData.name} had ${productData.stock} in stock but sold ${item.quantitySold}`
+          saleUnits = Number(item.quantitySold);
+
+          // 🔥🔥 NEW LOGIC (your patch applied here) 🔥🔥
+          const subUnits =
+            Number(productData.subUnits) ||
+            Number(productData.unitsPerPack) ||
+            1;
+
+          // Validate missing canonical fields
+          if (
+            productData.remainingUnits === undefined ||
+            productData.remainingPacks === undefined
+          ) {
+            productData.remainingUnits = Number(
+              productData.stockUnits || productData.stock * subUnits || 0
+            );
+            productData.remainingPacks = Math.floor(
+              productData.remainingUnits / subUnits
             );
           }
 
-          productData.stock -= item.quantitySold;
+          // Check availability
+          if (productData.remainingUnits < saleUnits) {
+            warnings.push(
+              `⚠️ Negative billing: ${productData.name} had ${productData.remainingUnits} units in stock but sold ${saleUnits}`
+            );
+          }
+
+          // Decrease units
+          productData.remainingUnits =
+            Number(productData.remainingUnits) - Number(saleUnits);
+          if (productData.remainingUnits < 0) productData.remainingUnits = 0;
+
+          // Recompute packs
+          productData.remainingPacks = Math.floor(
+            productData.remainingUnits / subUnits
+          );
+
+          // Sync legacy aliases
+          productData.stockUnits = productData.remainingUnits;
+          productData.stockPacks = productData.remainingPacks;
+          productData.stock = productData.remainingPacks;
+
+          // Compute human readable stock
+          productData.remainingStock = productData.getDisplayStock
+            ? productData.getDisplayStock()
+            : `${productData.remainingPacks} ${productData.packType}` +
+              (productData.remainingUnits -
+              productData.remainingPacks * subUnits
+                ? ` + ${
+                    productData.remainingUnits -
+                    productData.remainingPacks * subUnits
+                  } units`
+                : "");
+
           await productData.save();
+          // 🔥🔥 PATCHED LOGIC ENDS 🔥🔥
+
+          // Calculate sale price
+          salePacks = saleUnits / subUnits;
+
+          unitPrice =
+            productData.pricePerUnit > 0
+              ? productData.pricePerUnit
+              : productData.price / subUnits;
+
+          totalPrice = saleUnits * unitPrice;
+
+          // 🧾 Compute readable stock for response
+          const readableStock = productData.getDisplayStock();
+          remainingStockArray.push({
+            productName: productData.name,
+            readableStock,
+          });
 
           productDetails.push({
             product: {
               _id: productData._id,
               name: productData.name,
               scheme: productData.scheme || "",
-              packing: productData.packing || "",
+              packing: productData.pack || "",
               batchNumber: productData.batchNumber || "",
               expiryDate: productData.expiryDate || "",
-              costPrice: productData.costPrice, // ⬅️⬅️⬅️
-              price: productData.price || 0,
+              costPrice: productData.costPrice,
+              price: productData.price,
+              pricePerUnit: productData.pricePerUnit,
               discount: productData.discountPercentage || 0,
               gst: productData.gstPercentage || 0,
             },
-            quantitySold: item.quantitySold,
+            quantitySold: saleUnits,
+            saleUnits,
+            salePacks,
             unitPrice,
             totalPrice,
             fromMaster: false,
@@ -100,7 +177,7 @@ exports.generateBill = async (req, res) => {
         }
       }
 
-      // 🟡 CASE 2 — ProductMaster (but allow user to override any field)
+      // 🟡 FROM_MASTER
       const master = await ProductMaster.findOne({
         $or: [
           { id: item.productId },
@@ -111,9 +188,11 @@ exports.generateBill = async (req, res) => {
       if (master) {
         foundType = "FROM_MASTER";
 
+        saleUnits = item.quantitySold;
+        salePacks = saleUnits;
         unitPrice =
           parseFloat(item.price || item.unitPrice || master.price || 0) || 0;
-        totalPrice = unitPrice * item.quantitySold;
+        totalPrice = unitPrice * saleUnits;
 
         warnings.push(`Item from ProductMaster used: ${master.name}`);
 
@@ -122,15 +201,18 @@ exports.generateBill = async (req, res) => {
             _id: `MASTER-${master.id || master.name}`,
             name: item.name || master.name,
             scheme: item.scheme || master.scheme || "",
-            packing: item.packing || master.packing || "",
-            batchNumber: item.batchNumber || master.batchNumber || "",
-            expiryDate: item.expiryDate || master.expiryDate || "",
-            costPrice: Number(item.costPrice ?? 0), // ⬅️⬅️⬅️
+            packing: item.packing || master.pack_size_label || "",
+            batchNumber: item.batchNumber || "",
+            expiryDate: item.expiryDate || "",
+            costPrice: Number(item.costPrice ?? 0),
             price: unitPrice,
+            pricePerUnit: unitPrice,
             discount: item.discount ?? master.discountPercentage ?? 0,
             gst: item.gst ?? master.gstPercentage ?? 0,
           },
-          quantitySold: item.quantitySold,
+          quantitySold: saleUnits,
+          saleUnits,
+          salePacks,
           unitPrice,
           totalPrice,
           fromMaster: true,
@@ -140,10 +222,12 @@ exports.generateBill = async (req, res) => {
         continue;
       }
 
-      // 🔴 CASE 3 — Custom product (fully user-defined)
+      // 🔴 CUSTOM
       foundType = "CUSTOM";
+      saleUnits = Number(item.quantitySold);
+      salePacks = saleUnits;
       unitPrice = item.price || item.unitPrice || 0;
-      totalPrice = unitPrice * item.quantitySold;
+      totalPrice = unitPrice * saleUnits;
 
       warnings.push(`Custom item manually added: ${item.name}`);
 
@@ -155,12 +239,15 @@ exports.generateBill = async (req, res) => {
           packing: item.packing || "",
           batchNumber: item.batchNumber || "",
           expiryDate: item.expiryDate || "",
-          costPrice: Number(item.costPrice ?? 0), // ⬅️⬅️⬅️
+          costPrice: Number(item.costPrice ?? 0),
           price: unitPrice,
+          pricePerUnit: unitPrice,
           discount: item.discount || 0,
           gst: item.gst || 0,
         },
-        quantitySold: item.quantitySold,
+        quantitySold: saleUnits,
+        saleUnits,
+        salePacks,
         unitPrice,
         totalPrice,
         fromMaster: false,
@@ -168,12 +255,12 @@ exports.generateBill = async (req, res) => {
       });
     }
 
-    // ✅ Determine bill type
+    // ✅ Bill type
     let billType = "FROM_STOCK";
     if (productDetails.some((p) => p.fromMaster)) billType = "FROM_MASTER";
     if (productDetails.some((p) => p.custom)) billType = "CUSTOM";
 
-    // ✅ Create bill
+    // ✅ Save bill
     const bill = await Bill.create({
       enterprise: enterpriseId,
       products: productDetails,
@@ -182,10 +269,10 @@ exports.generateBill = async (req, res) => {
       customer: existingCustomer._id,
       paymentMode: paymentMode || "Cash",
       billType,
+      billingDate: billingDate || Date.now(),
       warnings,
     });
 
-    // ✅ Populate for PDF and sending
     const populatedBill = await Bill.findById(bill._id).populate(
       "customer",
       "name mobile email"
@@ -193,7 +280,10 @@ exports.generateBill = async (req, res) => {
 
     const enterprise = (await Enterprise.findOne({
       _id: req.user.enterprise,
-    })) || { name: "Pharmalogy" };
+    })) || {
+      name: "Pharmalogy",
+    };
+
     const pdfPath = await generateBillPDF(populatedBill, enterprise);
     const r2FileUrl = await uploadToR2(
       pdfPath,
@@ -204,7 +294,7 @@ exports.generateBill = async (req, res) => {
     populatedBill.billFileUrl = r2FileUrl;
     await populatedBill.save();
 
-    // ✅ Email if available
+    // ✅ Notifications
     if (populatedBill.customer?.email) {
       await sendBillEmail(
         populatedBill.customer.email,
@@ -214,7 +304,6 @@ exports.generateBill = async (req, res) => {
       );
     }
 
-    // ✅ WhatsApp if mobile available
     if (populatedBill.customer?.mobile) {
       const whatsappMessage = `Hello ${
         populatedBill.customer?.name || "Customer"
@@ -235,14 +324,17 @@ Thank you! Visit again.`;
     res.status(201).json({
       message: "Bill generated successfully",
       bill: populatedBill,
+      billingDate: populatedBill.billingDate,
       fileUrl: r2FileUrl,
       warnings,
+      remainingStock: remainingStockArray,
     });
   } catch (err) {
     console.error("❌ Bill generation failed:", err);
-    res
-      .status(500)
-      .json({ message: "Failed to generate bill", error: err.message });
+    res.status(500).json({
+      message: "Failed to generate bill",
+      error: err.message,
+    });
   }
 };
 
@@ -393,10 +485,18 @@ exports.getAllBills = async (req, res) => {
 exports.updateBill = async (req, res) => {
   try {
     const billId = req.params.billId || req.params.id;
-    const { products, totalAmount, prescribingDoctor, paymentMode } = req.body;
+
+    // 🔥 include billingDate
+    const {
+      products,
+      totalAmount,
+      prescribingDoctor,
+      paymentMode,
+      billingDate,
+    } = req.body;
+
     const enterpriseId = req.user.enterprise;
 
-    // Validate
     if (!billId) {
       return res.status(400).json({ message: "Bill ID is required" });
     }
@@ -410,7 +510,7 @@ exports.updateBill = async (req, res) => {
       return res.status(404).json({ message: "Bill not found" });
     }
 
-    // ✅ Only adjust stock if bill is FROM_STOCK
+    // 🟢 Adjust stock if bill was FROM_STOCK
     if (existingBill.billType === "FROM_STOCK") {
       for (const oldItem of existingBill.products) {
         const oldProductId =
@@ -418,14 +518,12 @@ exports.updateBill = async (req, res) => {
             ? oldItem.product._id
             : oldItem.product;
 
-        // find matching updated item
         const updatedItem = products.find(
           (p) =>
             p.productId?.toString() === oldProductId?.toString() ||
             p.product?._id?.toString() === oldProductId?.toString()
         );
 
-        // fetch productData from Product collection
         const productData = await Product.findOne({
           _id: oldProductId,
           enterprise: enterpriseId,
@@ -437,26 +535,23 @@ exports.updateBill = async (req, res) => {
         const newQty = updatedItem ? updatedItem.quantitySold : 0;
         const diff = newQty - oldQty;
 
-        // 🟢 if diff < 0 → increase stock (returned items)
-        // 🔴 if diff > 0 → decrease stock (more sold)
         productData.stock -= diff;
-        if (productData.stock < 0) productData.stock = 0; // prevent negatives
+        if (productData.stock < 0) productData.stock = 0;
 
         await productData.save();
       }
     }
 
-    // ✅ Build new product details (similar to generateBill)
+    // 🔧 Build new billed products
     const updatedProductDetails = [];
     const warnings = [];
 
     for (const item of products) {
       let productData = null;
-      let foundType = "CUSTOM";
       let unitPrice = 0;
       let totalPrice = 0;
 
-      // 🟢 FROM_STOCK
+      // STOCK
       if (mongoose.isValidObjectId(item.productId)) {
         productData = await Product.findOne({
           _id: item.productId,
@@ -464,7 +559,6 @@ exports.updateBill = async (req, res) => {
         });
 
         if (productData) {
-          foundType = "FROM_STOCK";
           unitPrice = productData.price;
           totalPrice = unitPrice * item.quantitySold;
 
@@ -491,7 +585,7 @@ exports.updateBill = async (req, res) => {
         }
       }
 
-      // 🟡 FROM_MASTER
+      // MASTER
       const master = await ProductMaster.findOne({
         $or: [
           { id: item.productId },
@@ -500,7 +594,6 @@ exports.updateBill = async (req, res) => {
       });
 
       if (master) {
-        foundType = "FROM_MASTER";
         unitPrice =
           parseFloat(item.price || item.unitPrice || master.price || 0) || 0;
         totalPrice = unitPrice * item.quantitySold;
@@ -527,8 +620,7 @@ exports.updateBill = async (req, res) => {
         continue;
       }
 
-      // 🔴 CUSTOM
-      foundType = "CUSTOM";
+      // CUSTOM
       unitPrice = item.price || item.unitPrice || 0;
       totalPrice = unitPrice * item.quantitySold;
 
@@ -552,13 +644,13 @@ exports.updateBill = async (req, res) => {
       });
     }
 
-    // ✅ Determine bill type
+    // determine bill type
     let billType = "FROM_STOCK";
     if (updatedProductDetails.some((p) => p.fromMaster))
       billType = "FROM_MASTER";
     if (updatedProductDetails.some((p) => p.custom)) billType = "CUSTOM";
 
-    // ✅ Update bill
+    // 🔥 UPDATE BILL WITH billingDate
     const updatedBill = await Bill.findByIdAndUpdate(
       billId,
       {
@@ -569,6 +661,7 @@ exports.updateBill = async (req, res) => {
           paymentMode,
           billType,
           warnings,
+          billingDate: billingDate || existingBill.billingDate || Date.now(), // ⭐ NEW
         },
       },
       { new: true }
@@ -577,6 +670,7 @@ exports.updateBill = async (req, res) => {
     res.status(200).json({
       message: "Bill updated successfully",
       bill: updatedBill,
+      billingDate: updatedBill.billingDate, // ⭐ NEW
     });
   } catch (err) {
     console.error("❌ Failed to edit bill:", err);

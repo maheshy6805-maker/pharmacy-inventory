@@ -156,16 +156,43 @@ exports.getAllMasterProducts = async (req, res) => {
 
     // Manual prioritization based on name match (sorting the results)
     if (name) {
+      const lowerName = name.toLowerCase();
+      const wordRegex = new RegExp(`\\b${lowerName}\\b`, "i");
+
+      const scoreFields = (item) => {
+        let score = 0;
+        const fields = [
+          item.name?.toLowerCase(),
+          item.short_composition1?.toLowerCase(),
+          item.short_composition2?.toLowerCase(),
+        ];
+
+        fields.forEach((field) => {
+          if (!field) return;
+
+          // Whole-word match (BEST)
+          if (wordRegex.test(field)) {
+            score += 200;
+          }
+          // Exact match
+          else if (field === lowerName) {
+            score += 150;
+          }
+          // Starts-with match
+          else if (field.startsWith(lowerName)) {
+            score += 50;
+          }
+          // Normal substring match
+          else if (field.includes(lowerName)) {
+            score += 10;
+          }
+        });
+
+        return score;
+      };
+
       matchedProducts = matchedProducts.sort((a, b) => {
-        const aScore =
-          (a.name.match(searchRegex) ? 3 : 0) +
-          (a.short_composition1?.match(searchRegex) ? 2 : 0) +
-          (a.short_composition2?.match(searchRegex) ? 1 : 0);
-        const bScore =
-          (b.name.match(searchRegex) ? 3 : 0) +
-          (b.short_composition1?.match(searchRegex) ? 2 : 0) +
-          (b.short_composition2?.match(searchRegex) ? 1 : 0);
-        return bScore - aScore; // descending order
+        return scoreFields(b) - scoreFields(a);
       });
     }
 

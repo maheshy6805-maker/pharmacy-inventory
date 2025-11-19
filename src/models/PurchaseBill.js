@@ -1,25 +1,32 @@
 // models/PurchaseBill.js
 const mongoose = require("mongoose");
 
+// models/PurchaseBill.js
 const purchaseItemSchema = new mongoose.Schema({
   name: { type: String, required: true },
-  hsnCode: { type: String },
-  manufacturerName: { type: String },
-  batchNo: { type: String },
-  expiryDate: { type: Date },
-  rate: { type: Number, required: true }, // cost price
-  retailPrice: { type: Number, required: true }, // selling price
+  hsnCode: String,
+  manufacturerName: String,
+  batchNo: String,
+  expiryDate: Date,
+  retailPrice: { type: Number, required: true },
   discountPercent: { type: Number, default: 0 },
-  scheme: { type: String },
+  scheme: String,
   cgstPercent: { type: Number, default: 0 },
   sgstPercent: { type: Number, default: 0 },
   qnty: { type: Number, required: true },
-  pack: { type: String },
-  amount: { type: Number, required: true }, // computed: qnty * rate or retailPrice
-  product: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Product",
-  },
+  amount: { type: Number, required: true },
+  product: { type: mongoose.Schema.Types.ObjectId, ref: "Product" },
+
+  // ⬇️⬇️⬇️  NEW
+  // models/Product.js  (only new/changed lines)
+  packType: { type: String, default: "Strip" }, // Bottle/Tube/Box …
+  packsQuantity: { type: Number, default: 0 }, // total packs bought
+  unitsPerPack: { type: Number, default: 1 }, // units in one pack
+  totalUnits: { type: Number, default: 0 }, // packsQuantity * unitsPerPack
+  remainingPacks: { type: Number, default: 0 }, // full packs left
+  remainingUnits: { type: Number, default: 0 }, // total units left
+  remainingStock: { type: String, default: "" }, // readable string
+  // 🧩 Stock tracking
 });
 
 const purchaseBillSchema = new mongoose.Schema(
