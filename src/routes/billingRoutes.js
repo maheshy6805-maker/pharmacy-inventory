@@ -12,5 +12,6 @@ router.patch(
   auth,
   billingController.updatePaymentReceived
 );
+router.get("/profit-loss", billingController.getProfitLoss);
 
 module.exports = router;

@@ -734,3 +734,126 @@ exports.updatePaymentReceived = async (req, res) => {
     });
   }
 };
+
+// ================================================
+//  GET TRUE PROFIT / LOSS (DATE FILTER SUPPORTED)
+// ================================================
+exports.getProfitLoss = async (req, res) => {
+  try {
+    const enterpriseId = req.user.enterprise;
+
+    // Query params
+    const { startDate, endDate } = req.query;
+
+    let dateFilter = { enterprise: enterpriseId };
+
+    // -------------------------------------------
+    // If both dates passed → filter between them
+    // If only one passed → auto-complete logically
+    // If none passed → return all bills
+    // -------------------------------------------
+    if (startDate && endDate) {
+      dateFilter.billingDate = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate),
+      };
+    } else if (startDate) {
+      dateFilter.billingDate = { $gte: new Date(startDate) };
+    } else if (endDate) {
+      dateFilter.billingDate = { $lte: new Date(endDate) };
+    }
+
+    // Fetch filtered bills
+    const bills = await Bill.find(dateFilter).lean();
+
+    let totalRevenue = 0;
+    let totalCost = 0;
+    let totalProfit = 0;
+
+    for (const bill of bills) {
+      for (const line of bill.products) {
+        const qty = Number(line.quantitySold || 0);
+        if (!qty) continue;
+
+        let sellingPricePerUnit = 0;
+        let costPricePerUnit = 0;
+
+        // -----------------------------------------------
+        // CASE 1 — FROM STOCK (product exists in inventory)
+        // -----------------------------------------------
+        if (
+          line.product &&
+          line.product._id &&
+          line.fromMaster === false &&
+          line.custom === false
+        ) {
+          const productId =
+            typeof line.product === "object" ? line.product._id : line.product;
+
+          const product = await Product.findById(productId).lean();
+
+          if (product) {
+            const unitsPerPack = Number(product.unitsPerPack || 1);
+
+            // cost price of one unit
+            costPricePerUnit = Number(product.costPrice || 0) / unitsPerPack;
+
+            // selling price
+            sellingPricePerUnit =
+              Number(product.pricePerUnit) ||
+              Number(product.price || 0) / unitsPerPack;
+
+            // apply discount
+            const discount = Number(
+              line.product.discount || line.discount || 0
+            );
+            sellingPricePerUnit *= 1 - discount / 100;
+          }
+        }
+
+        // -----------------------------------------------
+        // CASE 2 — FROM MASTER or CUSTOM
+        // -----------------------------------------------
+        else {
+          sellingPricePerUnit = Number(
+            line.unitPrice || line.pricePerUnit || line.price || 0
+          );
+
+          const discount = Number(line.discount || 0);
+          sellingPricePerUnit *= 1 - discount / 100;
+
+          // cost price unknown → 0
+          costPricePerUnit =
+            Number(line.product.costPrice || line.costPrice || 0) /
+            Number(line.product.unitsPerPack || line.unitsPerPack || 1);
+        }
+
+        // -----------------------------------------------
+        // CALCULATE
+        // -----------------------------------------------
+        const lineRevenue = sellingPricePerUnit * qty;
+        const lineCost = costPricePerUnit * qty;
+        const lineProfit = lineRevenue - lineCost;
+
+        totalRevenue += lineRevenue;
+        totalCost += lineCost;
+        totalProfit += lineProfit;
+      }
+    }
+
+    res.status(200).json({
+      message: "Profit/Loss calculated successfully",
+      startDate: startDate || null,
+      endDate: endDate || null,
+      totalRevenue: Number(totalRevenue.toFixed(2)),
+      totalCost: Number(totalCost.toFixed(2)),
+      totalProfit: Number(totalProfit.toFixed(2)),
+    });
+  } catch (err) {
+    console.error("❌ Profit/Loss error:", err);
+    res.status(500).json({
+      message: "Failed to calculate profit/loss",
+      error: err.message,
+    });
+  }
+};
