@@ -59,7 +59,6 @@ exports.generateBill = async (req, res) => {
     // 🧮 Loop through products in bill
     for (const item of products) {
       let productData = null;
-      let foundType = "CUSTOM";
       let unitPrice = 0;
       let totalPrice = 0;
       let saleUnits = 0;
@@ -73,17 +72,13 @@ exports.generateBill = async (req, res) => {
         });
 
         if (productData) {
-          foundType = "FROM_STOCK";
-
           saleUnits = Number(item.quantitySold);
 
-          // 🔥🔥 NEW LOGIC (your patch applied here) 🔥🔥
           const subUnits =
             Number(productData.subUnits) ||
             Number(productData.unitsPerPack) ||
             1;
 
-          // Validate missing canonical fields
           if (
             productData.remainingUnits === undefined ||
             productData.remainingPacks === undefined
@@ -96,44 +91,26 @@ exports.generateBill = async (req, res) => {
             );
           }
 
-          // Check availability
           if (productData.remainingUnits < saleUnits) {
             warnings.push(
               `⚠️ Negative billing: ${productData.name} had ${productData.remainingUnits} units in stock but sold ${saleUnits}`
             );
           }
 
-          // Decrease units
           productData.remainingUnits =
             Number(productData.remainingUnits) - Number(saleUnits);
           if (productData.remainingUnits < 0) productData.remainingUnits = 0;
 
-          // Recompute packs
           productData.remainingPacks = Math.floor(
             productData.remainingUnits / subUnits
           );
 
-          // Sync legacy aliases
           productData.stockUnits = productData.remainingUnits;
           productData.stockPacks = productData.remainingPacks;
           productData.stock = productData.remainingPacks;
 
-          // Compute human readable stock
-          productData.remainingStock = productData.getDisplayStock
-            ? productData.getDisplayStock()
-            : `${productData.remainingPacks} ${productData.packType}` +
-              (productData.remainingUnits -
-              productData.remainingPacks * subUnits
-                ? ` + ${
-                    productData.remainingUnits -
-                    productData.remainingPacks * subUnits
-                  } units`
-                : "");
-
           await productData.save();
-          // 🔥🔥 PATCHED LOGIC ENDS 🔥🔥
 
-          // Calculate sale price
           salePacks = saleUnits / subUnits;
 
           unitPrice =
@@ -143,7 +120,18 @@ exports.generateBill = async (req, res) => {
 
           totalPrice = saleUnits * unitPrice;
 
-          // 🧾 Compute readable stock for response
+          const discountPercent = Number(
+            productData.discountPercentage || item.discount || 0
+          );
+
+          const effectiveSellingPrice = unitPrice * (1 - discountPercent / 100);
+
+          const costPricePerUnit =
+            Number(productData.costPrice || 0) / subUnits;
+
+          const lineProfit =
+            (effectiveSellingPrice - costPricePerUnit) * saleUnits;
+
           const readableStock = productData.getDisplayStock();
           remainingStockArray.push({
             productName: productData.name,
@@ -169,6 +157,7 @@ exports.generateBill = async (req, res) => {
             salePacks,
             unitPrice,
             totalPrice,
+            profit: Number(lineProfit.toFixed(2)), // ⭐ Added
             fromMaster: false,
             custom: false,
           });
@@ -186,13 +175,25 @@ exports.generateBill = async (req, res) => {
       });
 
       if (master) {
-        foundType = "FROM_MASTER";
-
         saleUnits = item.quantitySold;
         salePacks = saleUnits;
+
         unitPrice =
           parseFloat(item.price || item.unitPrice || master.price || 0) || 0;
+
         totalPrice = unitPrice * saleUnits;
+
+        const discountPercent = Number(
+          item.discount || master.discountPercentage || 0
+        );
+
+        const effectiveSellingPrice = unitPrice * (1 - discountPercent / 100);
+
+        const costUnitPrice = Number(
+          item.costPricePerUnit || item.costPrice || 0
+        );
+
+        const lineProfit = (effectiveSellingPrice - costUnitPrice) * saleUnits;
 
         warnings.push(`Item from ProductMaster used: ${master.name}`);
 
@@ -204,10 +205,10 @@ exports.generateBill = async (req, res) => {
             packing: item.packing || master.pack_size_label || "",
             batchNumber: item.batchNumber || "",
             expiryDate: item.expiryDate || "",
-            costPrice: Number(item.costPrice ?? 0),
+            costPrice: costUnitPrice,
             price: unitPrice,
             pricePerUnit: unitPrice,
-            discount: item.discount ?? master.discountPercentage ?? 0,
+            discount: discountPercent,
             gst: item.gst ?? master.gstPercentage ?? 0,
           },
           quantitySold: saleUnits,
@@ -215,6 +216,7 @@ exports.generateBill = async (req, res) => {
           salePacks,
           unitPrice,
           totalPrice,
+          profit: Number(lineProfit.toFixed(2)), // ⭐ Added
           fromMaster: true,
           custom: false,
         });
@@ -223,13 +225,21 @@ exports.generateBill = async (req, res) => {
       }
 
       // 🔴 CUSTOM
-      foundType = "CUSTOM";
       saleUnits = Number(item.quantitySold);
       salePacks = saleUnits;
-      unitPrice = item.price || item.unitPrice || 0;
-      totalPrice = unitPrice * saleUnits;
+
+      const sellingUnitPrice = Number(item.pricePerUnit || 0);
+      const costUnitPrice = Number(item.costPricePerUnit || 0);
+
+      totalPrice = sellingUnitPrice * saleUnits;
 
       warnings.push(`Custom item manually added: ${item.name}`);
+
+      const discountPercent = Number(item.discount || 0);
+      const effectiveSellingPrice =
+        sellingUnitPrice * (1 - discountPercent / 100);
+
+      const lineProfit = (effectiveSellingPrice - costUnitPrice) * saleUnits;
 
       productDetails.push({
         product: {
@@ -239,32 +249,39 @@ exports.generateBill = async (req, res) => {
           packing: item.packing || "",
           batchNumber: item.batchNumber || "",
           expiryDate: item.expiryDate || "",
-          costPrice: Number(item.costPrice ?? 0),
-          price: unitPrice,
-          pricePerUnit: unitPrice,
-          discount: item.discount || 0,
+          costPrice: costUnitPrice,
+          pricePerUnit: sellingUnitPrice,
+          discount: discountPercent,
           gst: item.gst || 0,
         },
         quantitySold: saleUnits,
         saleUnits,
         salePacks,
-        unitPrice,
+        unitPrice: sellingUnitPrice,
         totalPrice,
+        profit: Number(lineProfit.toFixed(2)), // ⭐ Added
         fromMaster: false,
         custom: true,
       });
     }
 
-    // ✅ Bill type
+    // ⭐ COMPUTE TOTAL BILL PROFIT
+    const totalProfit = productDetails.reduce(
+      (sum, p) => sum + Number(p.profit || 0),
+      0
+    );
+
+    // Bill type detection
     let billType = "FROM_STOCK";
     if (productDetails.some((p) => p.fromMaster)) billType = "FROM_MASTER";
     if (productDetails.some((p) => p.custom)) billType = "CUSTOM";
 
-    // ✅ Save bill
+    // Save bill
     const bill = await Bill.create({
       enterprise: enterpriseId,
       products: productDetails,
       totalAmount,
+      totalProfit, // ⭐ Added
       prescribingDoctor,
       customer: existingCustomer._id,
       paymentMode: paymentMode || "Cash",
@@ -294,7 +311,7 @@ exports.generateBill = async (req, res) => {
     populatedBill.billFileUrl = r2FileUrl;
     await populatedBill.save();
 
-    // ✅ Notifications
+    // EMAIL + WHATSAPP unchanged 👍
     if (populatedBill.customer?.email) {
       await sendBillEmail(
         populatedBill.customer.email,
@@ -308,14 +325,13 @@ exports.generateBill = async (req, res) => {
       const whatsappMessage = `Hello ${
         populatedBill.customer?.name || "Customer"
       },
-
 Thank you for your purchase from ${enterprise.name}.
 💰 Total Amount: ₹${populatedBill.totalAmount}
 💳 Payment Mode: ${populatedBill.paymentMode}
 🧾 Bill Type: ${billType}
+📦 Total Profit: ₹${totalProfit.toFixed(2)}
 ${warnings.length ? "\n⚠️ Notes:\n" + warnings.join("\n") : ""}
 📄 Bill: ${r2FileUrl}
-
 Thank you! Visit again.`;
 
       await sendWhatsappMessage(populatedBill.customer.mobile, whatsappMessage);
@@ -341,6 +357,9 @@ Thank you! Visit again.`;
 // ----------------------------------------------------
 // 2️⃣ Get All Bills (with full product + customer details)
 // ----------------------------------------------------
+// ----------------------------------------------------
+// 2️⃣ Get All Bills (with full product + customer details + profit)
+// ----------------------------------------------------
 exports.getAllBills = async (req, res) => {
   try {
     const enterpriseId = req.user.enterprise;
@@ -349,80 +368,24 @@ exports.getAllBills = async (req, res) => {
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 10;
 
-    // Step 1️⃣ — Fetch bills
     let bills = await Bill.find({ enterprise: enterpriseId })
       .populate("customer", "name mobile email")
       .sort({ createdAt: -1 })
       .lean();
 
-    // Step 2️⃣ — Collect referenced product IDs (for old bills)
-    const allProductIds = bills.flatMap((b) =>
-      b.products
-        .map((p) =>
-          p.product && typeof p.product === "string" ? p.product : null
-        )
-        .filter(Boolean)
-    );
-
-    // Step 3️⃣ — Load referenced product docs in bulk
-    const productDocs = await Product.find({
-      _id: { $in: allProductIds },
-    })
-      .select(
-        "name brand manufacturer category subcategory salt price costPrice discountPercentage gstPercentage batchNumber unit stock prescriptionRequired expiryDate cutSelling subUnits pricePerUnit image scheme packing"
-      )
-      .lean();
-
-    const productMap = {};
-    for (const prod of productDocs) productMap[prod._id.toString()] = prod;
-
-    // Step 4️⃣ — Normalize bills (handle embedded + referenced products)
     const normalizedBills = bills.map((bill) => {
-      const normalizedProducts = bill.products.map((p) => {
-        let prodData = {};
+      const normalizedProducts = bill.products.map((p) => ({
+        ...p,
+        profit: p.profit ?? 0, // ⭐ Return profit per product
+      }));
 
-        // CASE 1 — Old bill with product ObjectId (lookup from Product)
-        if (typeof p.product === "string" && productMap[p.product]) {
-          prodData = productMap[p.product];
-        }
-
-        // CASE 2 — New bill (product embedded inline)
-        else if (typeof p.product === "object" && p.product !== null) {
-          prodData = { ...p.product };
-        }
-
-        // Normalize field naming & fill defaults
-        return {
-          ...p,
-          product: {
-            _id: prodData._id || p._id || "",
-            name: prodData.name || "",
-            brand: prodData.brand || "",
-            manufacturer: prodData.manufacturer || "",
-            category: prodData.category || "",
-            subcategory: prodData.subcategory || "",
-            salt: prodData.salt || "",
-            scheme: prodData.scheme || "",
-            packing: prodData.packing || "",
-            batchNumber: prodData.batchNumber || "",
-            expiryDate: prodData.expiryDate || "",
-            price: Number(prodData.price ?? p.unitPrice ?? 0),
-            costPrice: Number(prodData.costPrice ?? 0),
-            discount: Number(
-              prodData.discount ?? prodData.discountPercentage ?? 0
-            ),
-            gst: Number(prodData.gst ?? prodData.gstPercentage ?? 0),
-            unit: prodData.unit || "",
-            stock: prodData.stock ?? null,
-            image: prodData.image || "",
-          },
-        };
-      });
-
-      return { ...bill, products: normalizedProducts };
+      return {
+        ...bill,
+        products: normalizedProducts,
+        billFileUrl: bill.billFileUrl, // ⭐ Keep PDF URL in response
+      };
     });
 
-    // Step 5️⃣ — Apply search if provided
     let filteredBills = normalizedBills;
     if (search) {
       filteredBills = normalizedBills.filter((bill) => {
@@ -432,34 +395,16 @@ exports.getAllBills = async (req, res) => {
             searchRegex.test(bill.customer.mobile) ||
             searchRegex.test(bill.customer.email));
 
-        const matchesDoctor = searchRegex.test(bill.prescribingDoctor || "");
-
         const matchesProduct = bill.products.some((p) =>
           searchRegex.test(p.product?.name || "")
         );
 
-        const matchesManufacturer = bill.products.some((p) =>
-          searchRegex.test(p.product?.manufacturer || "")
-        );
-
-        const matchesCategory = bill.products.some((p) =>
-          searchRegex.test(p.product?.category || "")
-        );
-
-        return (
-          matchesCustomer ||
-          matchesDoctor ||
-          matchesProduct ||
-          matchesManufacturer ||
-          matchesCategory
-        );
+        return matchesCustomer || matchesProduct;
       });
     }
 
-    // Step 6️⃣ — Paginate the results
     const paginated = paginate(filteredBills, {}, page, limit);
 
-    // ✅ Final response
     res.status(200).json({
       total: paginated.total,
       totalPages: paginated.totalPages,
@@ -738,6 +683,9 @@ exports.updatePaymentReceived = async (req, res) => {
 // ================================================
 //  GET TRUE PROFIT / LOSS (DATE FILTER SUPPORTED)
 // ================================================
+// ================================================
+//  GET TRUE PROFIT / LOSS (DATE FILTER SUPPORTED)
+// ================================================
 exports.getProfitLoss = async (req, res) => {
   try {
     const enterpriseId = req.user.enterprise;
@@ -748,9 +696,7 @@ exports.getProfitLoss = async (req, res) => {
     let dateFilter = { enterprise: enterpriseId };
 
     // -------------------------------------------
-    // If both dates passed → filter between them
-    // If only one passed → auto-complete logically
-    // If none passed → return all bills
+    // Apply date filters if provided
     // -------------------------------------------
     if (startDate && endDate) {
       dateFilter.billingDate = {
@@ -779,7 +725,7 @@ exports.getProfitLoss = async (req, res) => {
         let costPricePerUnit = 0;
 
         // -----------------------------------------------
-        // CASE 1 — FROM STOCK (product exists in inventory)
+        // CASE 1 — FROM STOCK
         // -----------------------------------------------
         if (
           line.product &&
@@ -791,17 +737,17 @@ exports.getProfitLoss = async (req, res) => {
             typeof line.product === "object" ? line.product._id : line.product;
 
           const product = await Product.findById(productId).lean();
-
           if (product) {
             const unitsPerPack = Number(product.unitsPerPack || 1);
 
-            // cost price of one unit
-            costPricePerUnit = Number(product.costPrice || 0) / unitsPerPack;
+            // cost price per unit (pack cost / units per pack)
+            costPricePerUnit =
+              Number(product.costPrice || 0) / Number(unitsPerPack || 1);
 
-            // selling price
+            // selling price per unit
             sellingPricePerUnit =
               Number(product.pricePerUnit) ||
-              Number(product.price || 0) / unitsPerPack;
+              Number(product.price || 0) / Number(unitsPerPack || 1);
 
             // apply discount
             const discount = Number(
@@ -815,6 +761,7 @@ exports.getProfitLoss = async (req, res) => {
         // CASE 2 — FROM MASTER or CUSTOM
         // -----------------------------------------------
         else {
+          // selling price per unit
           sellingPricePerUnit = Number(
             line.unitPrice || line.pricePerUnit || line.price || 0
           );
@@ -822,14 +769,15 @@ exports.getProfitLoss = async (req, res) => {
           const discount = Number(line.discount || 0);
           sellingPricePerUnit *= 1 - discount / 100;
 
-          // cost price unknown → 0
+          // cost price per unit from DB
           costPricePerUnit =
-            Number(line.product.costPrice || line.costPrice || 0) /
-            Number(line.product.unitsPerPack || line.unitsPerPack || 1);
+            Number(line.product.costPrice) > 0
+              ? Number(line.product.costPrice)
+              : 0;
         }
 
         // -----------------------------------------------
-        // CALCULATE
+        // CALCULATE RESULTS
         // -----------------------------------------------
         const lineRevenue = sellingPricePerUnit * qty;
         const lineCost = costPricePerUnit * qty;

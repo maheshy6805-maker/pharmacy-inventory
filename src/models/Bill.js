@@ -70,6 +70,9 @@ const billedProductSchema = new mongoose.Schema(
       pricePerUnit: { type: Number, default: 0 }, // Unit price
       discount: { type: Number, default: 0 },
       gst: { type: Number, default: 0 },
+      // Add in billedProductSchema
+profit: { type: Number, default: 0 }, // per line profit
+
     },
 
     quantitySold: { type: Number, required: true }, // legacy field
@@ -110,6 +113,9 @@ const billSchema = new mongoose.Schema(
       enum: ["FROM_STOCK", "FROM_MASTER", "CUSTOM"],
       default: "FROM_STOCK",
     },
+    // Add in billSchema
+totalProfit: { type: Number, default: 0 },
+
     billingDate: { type: Date, default: Date.now },
     warnings: [{ type: String }],
   },

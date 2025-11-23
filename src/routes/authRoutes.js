@@ -21,6 +21,7 @@ router.post("/logout", (req, res) => {
   res.clearCookie("token");
   res.json({ message: "Logged out" });
 });
+router.get("/check-session", auth, authCtrl.checkSession);
 
 // ✅ Add this route for OTP resend
 router.post("/resend-otp", authCtrl.resendOtp);

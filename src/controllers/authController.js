@@ -243,3 +243,12 @@ exports.logout = (req, res) => {
   res.clearCookie("token");
   res.status(200).json({ message: "Logged out successfully" });
 };
+
+exports.checkSession = async (req, res) => {
+  try {
+    // If middleware has set req.user, token is valid
+    return res.status(200).json({ active: true });
+  } catch (err) {
+    return res.status(401).json({ active: false, message: "Session expired" });
+  }
+};
