@@ -15,6 +15,7 @@ app.use(
       "http://localhost:5174",
       "http://127.0.0.1:5173",
       "https://app.pharmalogy.co.in", // vercel domain
+      "https://app.krishnamedicose.in",
     ],
     credentials: true,
   })
