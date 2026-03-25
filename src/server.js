@@ -8,16 +8,23 @@ const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI;
 
 // ✅ register cors before routes
+// app.use(
+//   cors({
+//     origin: [
+//       "http://localhost:5173",
+//       "http://localhost:5174",
+//       "http://127.0.0.1:5173",
+//       "https://app.pharmalogy.co.in", // vercel domain
+//       "https://app.krishnamedicose.in",
+//     ],
+//     credentials: true,
+//   })
+// );
+
 app.use(
   cors({
-    origin: [
-      "http://localhost:5173",
-      "http://localhost:5174",
-      "http://127.0.0.1:5173",
-      "https://app.pharmalogy.co.in", // vercel domain
-      "https://app.krishnamedicose.in",
-    ],
-    credentials: true,
+    origin: "*",
+    credentials: true, // ⚠️ note: this won’t work with "*" in some browsers
   })
 );
 
